@@ -1,0 +1,438 @@
+{
+  "name": "AI SDR PHASE 1",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 8
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "06018ed5-284f-4bb1-9fb5-0055b7c337c4",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.producthunt.com/v2/api/graphql",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"query\": \"{ posts(first: 10, order: RANKING) { edges { node { name tagline description url website votesCount } } } }\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        208,
+        0
+      ],
+      "id": "a9f4b101-8f6f-439f-a740-a19ba2d75a18",
+      "name": "HTTP Request",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "5fSFTTCd5DStayyA",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const edges = items[0].json.data.posts.edges;\n\nreturn edges.map(edge => ({\n  json: {\n    name: edge.node.name,\n    tagline: edge.node.tagline,\n    description: edge.node.description,\n    votes: edge.node.votesCount,\n    redirectUrl: edge.node.website\n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        416,
+        0
+      ],
+      "id": "54d52e40-47d1-4462-b2e5-5262ff3fd9bf",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        624,
+        0
+      ],
+      "id": "3e00ac85-eb35-4cf9-8d68-b903e0478d99",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.redirectUrl }}",
+        "options": {
+          "redirect": {
+            "redirect": {}
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        96,
+        240
+      ],
+      "id": "25113c89-6367-4b77-854a-5acf183d03ff",
+      "name": "HTTP Request1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const html = items[0].json.data;\nconst name = items[0].json.name || $('Loop Over Items').item.json.name;\n\n// Extract URL from canonical link or og:url\nconst urlMatch = html.match(/rel=\"canonical\" href=\"([^\"]+)\"/) || \n                 html.match(/og:url\" content=\"([^\"]+)\"/);\nconst realUrl = urlMatch ? urlMatch[1] : 'unknown';\n\n// Extract title\nconst titleMatch = html.match(/<title>([^<]+)<\\/title>/);\nconst title = titleMatch ? titleMatch[1] : '';\n\n// Extract meta description\nconst descMatch = html.match(/name=\"description\" content=\"([^\"]+)\"/) ||\n                  html.match(/og:description\" content=\"([^\"]+)\"/);\nconst metaDesc = descMatch ? descMatch[1] : '';\n\n// Strip all HTML tags, collapse whitespace, take first 2000 chars\nconst bodyText = html\n  .replace(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, '')\n  .replace(/<style[^>]*>[\\s\\S]*?<\\/style>/gi, '')\n  .replace(/<[^>]+>/g, ' ')\n  .replace(/\\s+/g, ' ')\n  .trim()\n  .substring(0, 2000);\n\n// Carry forward previous fields from the loop\nconst loopItem = $('Loop Over Items').item.json;\n\nreturn [{\n  json: {\n    name: loopItem.name,\n    tagline: loopItem.tagline,\n    description: loopItem.description,\n    realUrl: realUrl,\n    pageTitle: title,\n    metaDescription: metaDesc,\n    bodyText: bodyText\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        288,
+        240
+      ],
+      "id": "6d01adf5-1fe0-4ee4-a9dd-c4607193e122",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"llama-3.3-70b-versatile\",\n  \"max_tokens\": 1000,\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are a senior B2B sales development rep. Analyze the company information provided and return a JSON object with exactly these fields: companyName, whatTheyDo (1 sentence), targetCustomer (who they sell to), painPoint (their biggest growth/marketing challenge), opportunityAngle (why AI automation would help them specifically), emailSubject (compelling subject line), emailBody (personalized cold email, 150 words max, no fluff, references specific details about their product).\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"={{ 'Company: ' + $json.name + '\\\\nTagline: ' + $json.tagline + '\\\\nDescription: ' + $json.description + '\\\\nWebsite text: ' + $json.bodyText }}\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        544,
+        240
+      ],
+      "id": "3da7cda0-9c1b-4088-ad25-d8d16a09b896",
+      "name": "HTTP Request2",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "5fSFTTCd5DStayyA",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const content = items[0].json.choices[0].message.content;\n\n// Strip markdown backticks and parse JSON\nconst cleaned = content.replace(/```json\\n?/g, '').replace(/```/g, '').trim();\nconst parsed = JSON.parse(cleaned);\n\n// Carry forward the realUrl from the previous code node\nconst realUrl = $('Code in JavaScript1').item.json.realUrl;\n\nreturn [{\n  json: {\n    companyName: parsed.companyName,\n    whatTheyDo: parsed.whatTheyDo,\n    targetCustomer: parsed.targetCustomer,\n    painPoint: parsed.painPoint,\n    opportunityAngle: parsed.opportunityAngle,\n    emailSubject: parsed.emailSubject,\n    emailBody: parsed.emailBody,\n    realUrl: realUrl,\n    status: 'enriched',\n    dateProcessed: new Date().toISOString()\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        736,
+        240
+      ],
+      "id": "3b2710f2-17cd-43da-8e97-dbb986cd472e",
+      "name": "Code in JavaScript2"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "AI SDR CRM",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "companyName": "={{ $json.companyName }}",
+            "whatTheyDo": "={{ $json.whatTheyDo }}",
+            "targetCustomer": "={{ $json.targetCustomer }}",
+            "painPoint": "={{ $json.painPoint }}",
+            "opportunityAngle": "={{ $json.opportunityAngle }}",
+            "emailSubject": "={{ $json.emailSubject }}",
+            "emailBody": "={{ $json.emailBody }}",
+            "realUrl": "={{ $json.realUrl }}",
+            "status": "={{ $json.status }}",
+            "dateProcessed ": "={{ $json.dateProcessed}}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "companyName",
+              "displayName": "companyName",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "whatTheyDo",
+              "displayName": "whatTheyDo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "targetCustomer",
+              "displayName": "targetCustomer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "painPoint",
+              "displayName": "painPoint",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "opportunityAngle",
+              "displayName": "opportunityAngle",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "emailSubject",
+              "displayName": "emailSubject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "emailBody",
+              "displayName": "emailBody",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "realUrl",
+              "displayName": "realUrl",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "dateProcessed ",
+              "displayName": "dateProcessed ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "emailSent",
+              "displayName": "emailSent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "followUpSent",
+              "displayName": "followUpSent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "replyStatus",
+              "displayName": "replyStatus",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        912,
+        240
+      ],
+      "id": "33a9ef4c-a4cc-4949-b02f-7d33039ecac1",
+      "name": "Append row in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "XkZ5HdeVWw9tQHkT",
+          "name": "Google Sheets OAuth2 API"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [],
+        [
+          {
+            "node": "HTTP Request1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request2": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript2": {
+      "main": [
+        [
+          {
+            "node": "Append row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append row in sheet": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "ede22e58-0e64-4ebc-81cf-420a715302fc",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "3995a76a6e46f595007736a5763f8d8e9f0f42ff46a229c41de91e2b7dded657"
+  },
+  "id": "mwBTCsdjjwv4CV9O",
+  "tags": []
+}
